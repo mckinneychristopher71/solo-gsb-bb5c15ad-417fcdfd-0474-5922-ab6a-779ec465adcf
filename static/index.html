@@ -142,6 +142,44 @@
         <div id="scenarioDetail" class="scenario-detail" hidden></div>
       </div>
 
+      <!-- ============ 到货交接台账 ============ -->
+      <div id="handoverView">
+        <h3>到货交接台账
+          <span class="muted handover-hint">交接单创建后即冻结,修改规划输入不影响;数据存于 SQLite,重启后可继续办理</span>
+        </h3>
+        <div class="handover-controls">
+          <button id="btnCreateOrder" type="button" class="btn btn-small"
+                  title="按当前方案冻结各箱各批次的应交件数,生成新的交接单">🧾 从当前方案创建交接单</button>
+          <label>交接单
+            <select id="handoverOrderSelect"></select>
+          </label>
+          <button id="btnRefreshOrders" type="button" class="btn btn-small" title="重新加载交接单列表">↻ 刷新</button>
+        </div>
+        <div id="handoverEmpty" class="muted handover-empty" hidden>暂无交接单:先生成分箱方案,再点击「从当前方案创建交接单」</div>
+        <div id="handoverBody" hidden>
+          <div id="handoverMeta" class="assess-meta"></div>
+          <div id="handoverItems"></div>
+
+          <div class="section-head">
+            <h4 class="handover-sub">登记签收 / 退回
+              <small class="muted">一次可提交多行,按行序累计净签收量;任一行越界(小于 0 或超过应交)则整笔不入账</small>
+            </h4>
+            <button id="btnAddRecordRow" type="button" class="btn btn-small">+ 添加行</button>
+          </div>
+          <div class="table-wrap">
+            <table class="editable handover-edit">
+              <thead><tr><th>类型</th><th>箱号 · 批号(批次 / 待交)</th><th>件数</th><th></th></tr></thead>
+              <tbody id="recordRows"></tbody>
+            </table>
+          </div>
+          <button id="btnSubmitRecords" type="button" class="btn btn-small btn-submit-records">✔ 提交记录</button>
+
+          <h4 class="handover-sub">签收 / 退回记录</h4>
+          <div id="handoverRecords"></div>
+        </div>
+        <div id="handoverError" class="error-box" hidden></div>
+      </div>
+
       <div id="errorBox" class="error-box" hidden></div>
     </section>
   </main>

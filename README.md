@@ -27,26 +27,38 @@
 预算才判超限，未设预算不判）。误差填 0 时与原复核结果一致（确定=可能、下界=上界=
 实测度时）。复核绑定生成方案时的输入快照，修改输入后旧复核结果自动标记为
 **已过期**，需重新生成方案后再复核。
+支持 **到货交接台账**：在分箱结果页一键 **从当前方案创建交接单**，服务端按规划输入
+快照重新规划并把 **各箱各批次的应交件数冻结** 存入 SQLite——此后修改规划输入、
+重新生成方案均不影响已创建的交接单，**重启后仍可继续办理**（数据库文件挂在
+Docker 命名卷上）。支持 **一次提交多行签收/退回记录**（每行指定箱号、批号与
+正整数件数），按提交顺序逐行累计 **净签收量**（签收 +、退回 −），任一行使某箱
+某批净签收量 **小于 0 或超过应交件数** 时 **整笔不入账**；支持 **撤销** 未撤销的
+记录——撤销前按原顺序 **跳过该记录重放** 其余有效记录，若任何后续记录导致数量
+越界则 **拒绝撤销并指出冲突记录**，原台账保持不变。页面实时展示记录列表与各箱
+各批次的 **净签收 / 待交件数**。
 支持在页面上随时修改输入并重新规划。
 
-- 后端：FastAPI（规划算法见 `app/planner.py`，无外部数据库依赖）
+- 后端：FastAPI（规划算法见 `app/planner.py`；交接台账见 `app/handover.py`，
+  使用 SQLite 持久化，见 `app/db.py`）
 - 前端：原生 HTML / CSS / JavaScript（无 CDN 依赖，离线可用）
-- 部署：Docker Compose
+- 部署：Docker Compose（数据库初始化与持久化卷已纳入启动）
 
 ## 一、启动命令
 
-### 方式 A：Docker Compose（推荐）
+### 方式 A：Docker Compose（推荐，单条命令一键启动）
 
 ```bash
-cd /workspace
 docker compose up -d --build
 ```
+
+启动即自动完成：构建镜像 → 初始化 SQLite 数据库（建表）→ 挂载持久化卷
+`handover-data`（交接单与签收/退回记录重启后仍在）→ 健康检查。
 
 查看日志 / 停止：
 
 ```bash
 docker compose logs -f
-docker compose down
+docker compose down        # 保留数据卷;加 -v 才会删除台账数据
 ```
 
 ### 方式 B：本地 Python 运行（Python 3.11+）
@@ -57,25 +69,34 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+本地运行时数据库默认写到 `./data/handover.db`（可用 `HANDOVER_DB_PATH` 修改）。
+
 ## 二、访问地址与端口
 
 | 内容 | 地址 |
 | --- | --- |
-| 规划器页面 | <http://localhost:8000/> |
+| 规划器页面（含到货交接台账） | <http://localhost:8000/> |
 | 健康检查 | <http://localhost:8000/api/health> |
 | 规划接口 | `POST http://localhost:8000/api/plan` |
 | 容灾评估接口 | `POST http://localhost:8000/api/zone-failure-assessment` |
 | 实测温度复核接口 | `POST http://localhost:8000/api/temperature-review` |
+| 创建交接单 | `POST http://localhost:8000/api/handover-orders` |
+| 交接单列表 / 详情 | `GET http://localhost:8000/api/handover-orders` · `GET /api/handover-orders/{id}` |
+| 提交签收/退回记录 | `POST http://localhost:8000/api/handover-orders/{id}/records` |
+| 撤销记录 | `POST http://localhost:8000/api/handover-orders/{id}/records/{record_id}/void` |
 | Swagger 接口文档 | <http://localhost:8000/docs> |
 
 ## 三、配置
 
-端口通过环境变量 `APP_PORT` 修改（默认 `8000`）：
+端口通过环境变量 `APP_PORT` 修改（默认 `8000`）；台账数据库文件在容器内的路径
+通过 `HANDOVER_DB_PATH` 修改（默认 `/data/handover.db`，目录已挂载命名卷
+`handover-data` 持久化，一般无需修改）：
 
 ```bash
 # 方式 1：复制示例配置后修改
 cp .env.example .env
 #   .env 内容:APP_PORT=9000
+#             HANDOVER_DB_PATH=/data/handover.db
 
 # 方式 2：启动时临时指定
 APP_PORT=9000 docker compose up -d --build
@@ -134,6 +155,17 @@ APP_PORT=9000 docker compose up -d --build
    - 复核绑定 **生成方案时的输入快照**；此后修改任意输入，复核区出现
      **「已过期」** 标记并禁用复核按钮，重新生成方案后即可再次复核；
    - 点击 **「下载 CSV 模板」** 可按当前方案全程秒数生成空白模板。
+8. 结果页底部的 **到货交接台账** 区管理交接单（无需重新生成方案即可查看，
+   页面打开时自动加载已有交接单，重启后可继续办理）：
+   - 生成方案后点击 **「🧾 从当前方案创建交接单」**，系统按当前方案冻结
+     各箱各批次的应交件数生成新交接单；此后修改规划输入不影响该单；
+   - 通过下拉框切换交接单，页面展示 **应交/净签收/待交件数** 明细表、
+     汇总徽标与全部签收/退回记录；
+   - 在 **登记签收/退回** 区一次添加多行（类型 + 箱号·批号 + 件数），
+     点击 **「✔ 提交记录」** 整笔入账；任一行越界时整笔不入账并提示
+     违规行与原因；
+   - 每条有效记录可点击 **「撤销」**；若撤销会导致后续记录越界，则拒绝
+     撤销并指出冲突记录（需先撤销其后的冲突记录）。
 
 ## 五、规划规则
 
@@ -229,7 +261,81 @@ APP_PORT=9000 docker compose up -d --build
 - 响应携带输入快照的 SHA-256 指纹（`input_fingerprint`），输入变化后前端
   将旧复核结果标记为已过期，需重新生成方案后再复核。
 
-## 八、接口示例
+## 八、到货交接台账规则
+
+- **创建交接单**：请求体携带规划输入快照（`plan_input`，与 `/api/plan`
+  相同），服务端按快照 **重新规划**，把结果中各箱各批次的已装件数冻结为
+  **应交件数**（同一箱同一批多次出现的件数合并）；方案没有任何已装载货物时
+  拒绝创建（400）。交接单连同输入快照、快照指纹一并存入 SQLite，
+  **此后修改规划输入、重新生成方案均不影响已创建的交接单**，服务重启后
+  可继续办理；
+- **提交签收/退回记录**：一次提交 **多行**，每行指定 `kind`
+  （`receive` 签收 / `return` 退回）、`box_no`、`batch_no` 与正整数 `units`；
+  服务端在既有台账基础上 **按提交顺序逐行累计净签收量**（签收 +、退回 −），
+  任何一行使该箱该批净签收量 **小于 0 或超过应交件数**，或箱号/批号不在
+  交接单明细中，则 **整笔不入账**（事务整体回滚，400 并指明违规行）；
+  同一笔提交的记录共享一个 **提交批次号**（`submission_id`，按单递增）；
+- **撤销记录**：仅可撤销 **未撤销** 的记录（重复撤销返回 400）。撤销前按
+  原提交顺序 **跳过该记录重放** 其余有效记录：若任一后续记录导致净签收量
+  越界，则 **拒绝撤销**（409），响应 `conflicts` 指出 **冲突记录**
+  （记录号、类型、箱号、批号、件数、越界后的数量与应交量），
+  **原台账保持不变**；需先撤销其后的冲突记录。重放通过才把该记录标记为
+  已撤销（保留记录与撤销时间，不物理删除）；
+- **台账展示**：交接单详情返回各箱各批次的应交件数、**净签收** 与
+  **待交件数**（应交 − 净签收），以及全部记录（含已撤销）与汇总；
+- **持久化**：三张表（`handover_orders` / `handover_items` /
+  `handover_records`）存于 SQLite（WAL 模式、外键约束），数据库文件路径由
+  `HANDOVER_DB_PATH` 指定，Compose 下默认 `/data/handover.db` 并挂载命名卷
+  `handover-data`，容器重启/重建后数据仍在。
+
+### 到货交接台账接口示例
+
+```bash
+# 1) 从当前方案创建交接单(plan_input 与 /api/plan 请求体相同)
+curl -X POST http://localhost:8000/api/handover-orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan_input": {
+      "transport_hours": 24, "box_capacity": 12,
+      "zones": [{"name": "冷藏区", "t_min": 0, "t_max": 8}],
+      "cargoes": [
+        {"name": "鲜奶", "units": 40, "unit_volume": 0.25, "t_min": 2, "t_max": 6},
+        {"name": "三文鱼", "units": 10, "unit_volume": 0.4, "t_min": -2, "t_max": 2}
+      ]
+    }
+  }'
+# → 201;items 冻结为 箱1·批1 鲜奶 应交 32、箱1·批2 三文鱼 应交 10、箱2·批1 鲜奶 应交 8
+
+# 2) 一次提交多行签收/退回(按行序累计,任一行越界则整笔不入账)
+curl -X POST http://localhost:8000/api/handover-orders/1/records \
+  -H "Content-Type: application/json" \
+  -d '{"records": [
+        {"kind": "receive", "box_no": 1, "batch_no": 1, "units": 20},
+        {"kind": "receive", "box_no": 1, "batch_no": 2, "units": 10},
+        {"kind": "return",  "box_no": 1, "batch_no": 2, "units": 3}
+      ]}'
+# → 201;净签收:箱1·批1 = 20,箱1·批2 = 7
+
+# 3) 撤销一条记录(若导致后续记录越界则 409 并附 conflicts,台账不变)
+curl -X POST http://localhost:8000/api/handover-orders/1/records/2/void
+
+# 4) 查看列表与详情(重启后仍可查询、继续办理)
+curl http://localhost:8000/api/handover-orders
+curl http://localhost:8000/api/handover-orders/1
+```
+
+### 到货交接台账响应字段
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` / `created_at` / `input_fingerprint` | 交接单号、创建时间与创建时规划输入快照的 SHA-256 指纹 |
+| `plan_input` | 创建时的规划输入快照(冻结保存,不随后续修改变化) |
+| `items[]` | 应交明细:`box_no` / `batch_no` / `batch_name` / `due_units`(应交件数)/ `net_signed_units`(净签收)/ `pending_units`(待交 = 应交 − 净签收) |
+| `records[]` | 全部记录:`id`、`submission_id`(提交批次号)、`kind`(`receive`/`return`)、`box_no` / `batch_no` / `batch_name`、`units`、`voided`、`created_at` / `voided_at` |
+| `summary` | 箱数、明细项数、应交/净签收/待交总件数、记录总数/有效数/已撤销数 |
+| 撤销 409 响应 `conflicts[]` | 冲突记录明细:`record_id`、`kind`、`box_no`、`batch_no`、`units`、`resulting_net`(重放后越界的净签收量)、`due_units` |
+
+## 九、接口示例
 
 ### 单一温区模式（兼容原有调用）
 
@@ -626,22 +732,26 @@ curl -X POST http://localhost:8000/api/temperature-review \
 }
 ```
 
-## 九、项目结构
+## 十、项目结构
 
 ```
 .
 ├── app/
-│   ├── main.py        # FastAPI 入口与静态资源挂载
+│   ├── main.py        # FastAPI 入口、异常映射与静态资源挂载
 │   ├── planner.py     # 温区兼容 + 容量约束 + 热暴露预算 + 锁温区段分箱算法
 │   ├── resilience.py  # 单温区故障容灾评估(逐温区模拟失效并重规划)
 │   ├── review.py      # 实测温度复核(CSV 校验、仪器误差带、确定/可能超界切段、度时上下界积分)
+│   ├── handover.py    # 到货交接台账(交接单冻结、多行签收/退回整笔入账、撤销重放校验)
+│   ├── db.py          # SQLite 连接与建表(WAL、外键、显式事务)
 │   └── schemas.py     # 请求模型
 ├── static/
 │   ├── index.html     # 单页前端
 │   ├── styles.css
 │   └── app.js
+├── tests/
+│   └── test_handover.py  # 台账 API 测试(python tests/test_handover.py)
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml # 含 SQLite 初始化与 handover-data 持久化卷
 ├── .env.example
 └── requirements.txt
 ```

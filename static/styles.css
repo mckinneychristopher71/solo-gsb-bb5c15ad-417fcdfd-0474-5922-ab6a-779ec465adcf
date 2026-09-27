@@ -525,6 +525,34 @@ select:focus, input[type="file"]:focus {
 .review-none { padding: 6px 0 2px; }
 table.review-exc { width: 100%; margin: 8px 0 0; }
 
+/* ---------- 到货交接台账 ---------- */
+#handoverView { margin-top: 26px; border-top: 1px dashed var(--line); padding-top: 6px; }
+#handoverView h3 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.handover-hint { font-size: 12px; }
+
+.handover-controls {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 4px 0 12px;
+}
+.handover-controls label { flex: 1 1 320px; }
+.handover-controls .btn { flex: 0 0 auto; }
+
+.handover-empty { padding: 8px 0 4px; }
+.handover-sub { margin: 16px 0 8px; font-size: 13.5px; }
+.section-head h4 { margin: 0; }
+
+table.handover-table { width: 100%; margin: 8px 0 0; }
+table.handover-edit { width: 100%; }
+table.handover-edit select { width: 100%; }
+table.handover-edit input { width: 120px; }
+
+.btn-submit-records { margin-top: 8px; }
+tr.rec-voided td { opacity: 0.55; }
+tr.rec-voided td:nth-child(6) { text-decoration: line-through; }
+
 .foot {
   text-align: center;
   color: var(--muted);
