@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>冷链装箱温控规划器</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">❄</span>
+      <div>
+        <h1>冷链装箱温控规划器</h1>
+        <p>按温区兼容、容量约束、累计热暴露预算与锁温区段自动生成分箱方案</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="btnSample" type="button" class="btn btn-ghost">载入示例</button>
+      <button id="btnPlan" type="button" class="btn btn-primary">▶ 生成分箱方案</button>
+      <button id="btnAssess" type="button" class="btn btn-assess">🛡 容灾评估</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ============ 输入区 ============ -->
+    <section class="panel input-panel">
+      <h2>运输与箱体参数</h2>
+      <div class="grid-4">
+        <label id="transportHoursField">运输时长 (h)
+          <input id="transportHours" type="number" min="0" step="0.5" value="24" />
+        </label>
+        <label>单箱容量
+          <input id="boxCapacity" type="number" min="0" step="0.1" value="12" />
+        </label>
+        <label>最大箱数
+          <input id="maxBoxes" type="number" min="1" step="1" value="20" />
+        </label>
+        <label>体积单位
+          <input id="volumeUnit" type="text" value="m³" />
+        </label>
+      </div>
+
+      <label class="seg-toggle">
+        <input type="checkbox" id="useSegments" />
+        启用分段运输:按顺序维护各运输段的时长与可用温区,规划时逐段校验
+        <small>(总运输时长 = 各段时长之和)</small>
+      </label>
+
+      <div id="singleZoneSection">
+        <div class="section-head">
+          <h2>允许温区</h2>
+          <button id="btnAddZone" type="button" class="btn btn-small">+ 添加温区</button>
+        </div>
+        <div class="table-wrap">
+          <table class="editable">
+            <thead>
+              <tr><th>温区名称</th><th>下限 ℃</th><th>上限 ℃</th><th></th></tr>
+            </thead>
+            <tbody id="zoneRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="segmentSection" hidden>
+        <div class="section-head">
+          <h2>运输段 <small class="muted">(按执行顺序;相邻且锁温组相同的段共用一个设定点)</small></h2>
+          <button id="btnAddSegment" type="button" class="btn btn-small">+ 添加运输段</button>
+        </div>
+        <div id="segmentList"></div>
+      </div>
+
+      <div class="section-head">
+        <h2>货物批次</h2>
+        <button id="btnAddCargo" type="button" class="btn btn-small">+ 添加批次</button>
+      </div>
+      <div class="table-wrap">
+        <table class="editable">
+          <thead>
+            <tr>
+              <th>批次名称</th><th>件数</th><th>单件体积</th>
+              <th>允许下限 ℃</th><th>允许上限 ℃</th>
+              <th>首选下限 ℃<br><small>(可选)</small></th>
+              <th>首选上限 ℃<br><small>(可选)</small></th>
+              <th>度时预算 ℃·h<br><small>(留空不限)</small></th>
+              <th>最长运输 h<br><small>(留空不限)</small></th><th></th>
+            </tr>
+          </thead>
+          <tbody id="cargoRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 结果区 ============ -->
+    <section class="panel result-panel">
+      <div id="resultPlaceholder" class="placeholder">
+        录入或载入示例后,点击 <strong>「生成分箱方案」</strong> 查看结果
+      </div>
+
+      <div id="resultView" hidden>
+        <h2>规划结果</h2>
+        <div id="summary" class="summary"></div>
+
+        <h3>分箱方案 <span id="boxCount" class="muted"></span></h3>
+        <div id="boxes" class="box-list"></div>
+
+        <h3 id="unloadedTitle" class="conflict-title" hidden>未能装载的货物与冲突原因</h3>
+        <div id="unloaded" class="unloaded-list"></div>
+
+        <!-- ============ 实测温度复核 ============ -->
+        <div id="reviewView" hidden>
+          <h3>实测温度复核
+            <span id="reviewStale" class="stale-badge" hidden>⚠ 输入已变化,复核结果已过期,请重新生成方案</span>
+          </h3>
+          <div class="review-controls">
+            <label>复核箱子
+              <select id="reviewBox"></select>
+            </label>
+            <label title="测温仪器绝对误差(℃,非负,默认 0):真实温度视为实测值 ± 误差">
+              测温仪器绝对误差 (℃,可选,默认 0)
+              <input id="reviewErrorInput" type="number" min="0" step="any" value="0" placeholder="0" />
+            </label>
+            <label>实测温度 CSV(time_seconds,temperature)
+              <input type="file" id="reviewFile" accept=".csv,text/csv" />
+            </label>
+            <button id="btnReview" type="button" class="btn btn-small">📈 开始复核</button>
+            <button id="btnCsvTemplate" type="button" class="btn btn-small">下载 CSV 模板</button>
+          </div>
+          <div id="reviewMeta" class="assess-meta"></div>
+          <div id="reviewResult"></div>
+          <div id="reviewError" class="error-box" hidden></div>
+        </div>
+      </div>
+
+      <!-- ============ 单温区故障容灾评估 ============ -->
+      <div id="assessView" hidden>
+        <h3>单温区故障容灾评估
+          <span id="assessStale" class="stale-badge" hidden>⚠ 输入已变化,结果已过期,请重新评估</span>
+        </h3>
+        <div id="assessMeta" class="assess-meta"></div>
+        <div id="riskMatrix" class="risk-matrix"></div>
+        <div id="scenarioDetail" class="scenario-detail" hidden></div>
+      </div>
+
+      <div id="errorBox" class="error-box" hidden></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    FastAPI + 原生 JS · 接口文档见 <a href="/docs" target="_blank">/docs</a>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
