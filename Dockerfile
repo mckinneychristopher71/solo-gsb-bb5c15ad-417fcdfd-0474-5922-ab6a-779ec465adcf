@@ -12,6 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY static ./static
 
+# 交接台账 SQLite 数据目录(Compose 挂载命名卷持久化;本地运行时自动创建)
+RUN mkdir -p /app/data
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

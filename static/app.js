@@ -484,6 +484,8 @@ async function runPlan() {
     planData = data;
     renderResult(data);
     markReviewStale();
+    /* 方案已生成,允许从当前方案创建交接单 */
+    $("btnCreateOrder").disabled = false;
   } catch (e) {
     showError(e.message);
   } finally {
@@ -1019,3 +1021,273 @@ $("btnSample").addEventListener("click", () => {
 /* ---------------- 初始空行 ---------------- */
 addZoneRow({ name: "冷藏区", t_min: 0, t_max: 8 });
 addCargoRow({ name: "", units: "", unit_volume: "", t_min: "", t_max: "" });
+
+/* ---------------- 到货交接台账 ---------------- */
+/* 交接单冻结创建时方案的各箱各批次应交件数并存入 SQLite;
+   修改规划输入或重启服务均不影响已建交接单,页面加载时自动恢复列表 */
+let currentOrderId = null; // 当前查看的交接单 id
+let currentOrder = null; // 当前交接单详情
+
+const apiErr = (data, fallback) =>
+  typeof data.detail === "string" ? data.detail : fallback;
+
+function showHandoverError(msg) {
+  $("handoverError").hidden = false;
+  $("handoverError").textContent = "⚠ " + msg;
+}
+
+function hideHandoverError() {
+  $("handoverError").hidden = true;
+  $("handoverError").textContent = "";
+}
+
+/* 拉取交接单列表并填充下拉框;返回应选中的交接单 id(无则 null) */
+async function loadOrderList(preferId = null) {
+  let orders = [];
+  try {
+    const resp = await fetch("/api/handover-orders");
+    const data = await resp.json();
+    if (resp.ok) orders = data.orders || [];
+  } catch (e) {
+    orders = [];
+  }
+  const sel = $("orderSelect");
+  sel.innerHTML = orders
+    .map(
+      (o) =>
+        `<option value="${o.id}">#${o.id} ${escapeHtml(o.title)} · 待交 ${fmt(o.pending_units)} 件</option>`
+    )
+    .join("");
+  $("handoverEmpty").hidden = orders.length > 0;
+  if (!orders.length) {
+    currentOrderId = null;
+    currentOrder = null;
+    $("handoverDetail").hidden = true;
+    return null;
+  }
+  const exists = (id) => orders.some((o) => o.id === id);
+  const target = exists(preferId) ? preferId : exists(currentOrderId) ? currentOrderId : orders[0].id;
+  sel.value = String(target);
+  return target;
+}
+
+async function loadOrderDetail(orderId) {
+  hideHandoverError();
+  try {
+    const resp = await fetch(`/api/handover-orders/${orderId}`);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(apiErr(data, `加载交接单失败(HTTP ${resp.status})`));
+    currentOrderId = data.id;
+    currentOrder = data;
+    renderHandover(data);
+  } catch (e) {
+    showHandoverError(e.message);
+  }
+}
+
+function renderHandover(data) {
+  $("handoverDetail").hidden = false;
+  const sm = data.summary;
+  $("handoverMeta").innerHTML = `
+    <span class="assess-chip">${escapeHtml(data.title)}</span>
+    <span class="assess-chip">创建于 ${escapeHtml(data.created_at)}</span>
+    <span class="assess-chip muted">快照 ${data.plan_fingerprint.slice(0, 8)}</span>
+    <span class="assess-chip">应交合计 ${fmt(sm.expected_units)} 件</span>
+    <span class="assess-chip ${sm.pending_units ? "chip-warn" : "chip-ok"}">净签收 ${fmt(sm.net_signed_units)} · 待交 ${fmt(sm.pending_units)} 件</span>
+    ${sm.complete ? '<span class="assess-chip chip-ok">✓ 全部交清</span>' : ""}
+    <span class="assess-chip muted">记录 ${fmt(sm.active_record_count)} 条有效 / ${fmt(sm.undone_record_count)} 条已撤销</span>`;
+
+  /* 应交明细:各箱各批次的应交、净签收与待交件数 */
+  $("handoverLines").innerHTML = `
+    <table class="handover-table">
+      <thead><tr><th>箱号</th><th>批号</th><th>批次</th><th class="num">应交件数</th>
+        <th class="num">净签收</th><th class="num">待交件数</th><th>签收进度</th></tr></thead>
+      <tbody>${data.lines
+        .map((l) => {
+          const pct = Math.round((l.net_signed_units / l.expected_units) * 100);
+          return `<tr>
+            <td>第 ${l.box_no} 箱</td><td>#${l.batch_no}</td><td>${escapeHtml(l.batch_name)}</td>
+            <td class="num">${fmt(l.expected_units)}</td>
+            <td class="num">${fmt(l.net_signed_units)}</td>
+            <td class="num">${l.pending_units
+              ? `<strong class="heat-text-warn">${fmt(l.pending_units)}</strong>`
+              : '<span class="heat-text-ok">0</span>'}</td>
+            <td><div class="heat-bar" title="已签收 ${pct}%"><i class="${l.pending_units ? "heat-warn" : "heat-ok"}" style="width:${pct}%"></i></div></td>
+          </tr>`;
+        })
+        .join("")}</tbody>
+    </table>`;
+
+  /* 签收/退回记录:已撤销的行划线展示,未撤销的可撤销 */
+  if (!data.records.length) {
+    $("handoverRecords").innerHTML = '<div class="muted detail-none">暂无签收/退回记录</div>';
+  } else {
+    $("handoverRecords").innerHTML = `
+      <table class="handover-table">
+        <thead><tr><th>序号</th><th>提交批次</th><th>类型</th><th>箱号</th><th>批号</th>
+          <th class="num">件数</th><th>备注</th><th>时间</th><th>状态 / 操作</th></tr></thead>
+        <tbody>${data.records
+          .map(
+            (r) => `<tr class="${r.undone ? "rec-undone" : ""}">
+            <td>#${r.seq}</td><td>第 ${r.submission_id} 笔</td>
+            <td><span class="kind-badge ${r.kind === "sign" ? "kind-sign" : "kind-return"}">${r.kind_label}</span></td>
+            <td>第 ${r.box_no} 箱</td><td>#${r.batch_no}</td>
+            <td class="num">${r.kind === "sign" ? "+" : "−"}${fmt(r.units)}</td>
+            <td>${r.note ? escapeHtml(r.note) : '<span class="muted">—</span>'}</td>
+            <td>${escapeHtml(r.created_at)}</td>
+            <td>${r.undone
+              ? `<span class="badge badge-warn">已撤销</span><br><small class="muted">${escapeHtml(r.undone_at || "")}</small>`
+              : `<button type="button" class="btn btn-small btn-undo" data-record="${r.record_id}">撤销</button>`}</td>
+          </tr>`
+          )
+          .join("")}</tbody>
+      </table>`;
+  }
+
+  /* 录入行的箱号/批号候选(来自应交明细) */
+  $("boxList").innerHTML = [...new Set(data.lines.map((l) => l.box_no))]
+    .map((b) => `<option value="${b}">`)
+    .join("");
+  $("batchList").innerHTML = [...new Set(data.lines.map((l) => l.batch_no))]
+    .map((b) => `<option value="${b}">`)
+    .join("");
+}
+
+/* 从当前方案创建交接单(冻结各箱各批次应交件数) */
+async function createHandoverOrder() {
+  hideHandoverError();
+  if (!planSnapshot) {
+    showHandoverError("请先点击「生成分箱方案」,再从当前方案创建交接单");
+    return;
+  }
+  const btn = $("btnCreateOrder");
+  btn.disabled = true;
+  try {
+    const resp = await fetch("/api/handover-orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan_input: JSON.parse(planSnapshot) }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(apiErr(data, `创建交接单失败(HTTP ${resp.status})`));
+    const id = await loadOrderList(data.id);
+    if (id) await loadOrderDetail(id);
+  } catch (e) {
+    showHandoverError(e.message);
+  } finally {
+    btn.disabled = !planSnapshot;
+  }
+}
+
+function addHandoverRow() {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td><select class="hr-kind">
+      <option value="sign">签收</option><option value="return">退回</option>
+    </select></td>
+    <td><input class="hr-box" type="number" min="1" step="1" list="boxList" placeholder="箱号" /></td>
+    <td><input class="hr-batch" type="number" min="1" step="1" list="batchList" placeholder="批号" /></td>
+    <td><input class="hr-units" type="number" min="1" step="1" placeholder="件数" /></td>
+    <td><input class="hr-note" type="text" placeholder="可选" /></td>
+    <td><button type="button" class="btn btn-del">删除</button></td>`;
+  $("handoverRows").appendChild(tr);
+  tr.querySelector(".hr-box").focus();
+}
+
+/* 提交整笔(多行)签收/退回记录;任一行越界则整笔不入账 */
+async function submitHandoverRecords() {
+  hideHandoverError();
+  if (!currentOrderId) {
+    showHandoverError("请先选择交接单");
+    return;
+  }
+  const rows = [...$("handoverRows").querySelectorAll("tr")];
+  if (!rows.length) {
+    showHandoverError("请至少添加一行记录");
+    return;
+  }
+  let records;
+  try {
+    records = rows.map((tr, i) => {
+      const kind = tr.querySelector(".hr-kind").value;
+      const boxNo = Number(tr.querySelector(".hr-box").value);
+      const batchNo = Number(tr.querySelector(".hr-batch").value);
+      const units = Number(tr.querySelector(".hr-units").value);
+      const note = tr.querySelector(".hr-note").value.trim();
+      if (!Number.isInteger(boxNo) || boxNo <= 0)
+        throw new Error(`第 ${i + 1} 行:箱号须为正整数`);
+      if (!Number.isInteger(batchNo) || batchNo <= 0)
+        throw new Error(`第 ${i + 1} 行:批号须为正整数`);
+      if (!Number.isInteger(units) || units <= 0)
+        throw new Error(`第 ${i + 1} 行:件数须为正整数`);
+      return { kind, box_no: boxNo, batch_no: batchNo, units, note: note || null };
+    });
+  } catch (e) {
+    showHandoverError(e.message);
+    return;
+  }
+  const btn = $("btnSubmitRecords");
+  btn.disabled = true;
+  try {
+    const resp = await fetch(`/api/handover-orders/${currentOrderId}/records`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ records }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(apiErr(data, `提交失败(HTTP ${resp.status})`));
+    currentOrder = data;
+    renderHandover(data);
+    $("handoverRows").innerHTML = "";
+    addHandoverRow();
+    await loadOrderList(currentOrderId); // 刷新列表中的待交件数
+  } catch (e) {
+    showHandoverError(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* 撤销记录:重放越界时后端返回 409 与冲突记录,台账保持不变 */
+$("handoverRecords").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".btn-undo");
+  if (!btn || !currentOrderId) return;
+  hideHandoverError();
+  btn.disabled = true;
+  try {
+    const resp = await fetch(
+      `/api/handover-orders/${currentOrderId}/records/${btn.dataset.record}/undo`,
+      { method: "POST" }
+    );
+    const data = await resp.json();
+    if (resp.status === 409) {
+      showHandoverError(apiErr(data, "撤销被拒绝:跳过后重放其余有效记录越界"));
+      return;
+    }
+    if (!resp.ok) throw new Error(apiErr(data, `撤销失败(HTTP ${resp.status})`));
+    currentOrder = data;
+    renderHandover(data);
+    await loadOrderList(currentOrderId);
+  } catch (e2) {
+    showHandoverError(e2.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("btnCreateOrder").addEventListener("click", createHandoverOrder);
+$("btnAddHandoverRow").addEventListener("click", () => addHandoverRow());
+$("btnSubmitRecords").addEventListener("click", submitHandoverRecords);
+$("btnRefreshOrders").addEventListener("click", async () => {
+  const id = await loadOrderList();
+  if (id) await loadOrderDetail(id);
+});
+$("orderSelect").addEventListener("change", () =>
+  loadOrderDetail(Number($("orderSelect").value))
+);
+
+/* 页面加载即恢复历史交接单(重启后可继续办理) */
+addHandoverRow();
+loadOrderList().then((id) => {
+  if (id) loadOrderDetail(id);
+});

@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .venv/
 .env
+data/
+*.db
+*.db-wal
+*.db-shm

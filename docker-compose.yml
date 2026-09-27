@@ -5,9 +5,18 @@ services:
     container_name: coldchain-planner
     ports:
       - "${APP_PORT:-8000}:8000"
+    environment:
+      # 交接台账 SQLite 数据库路径(容器内),默认落在挂载卷 /app/data
+      - HANDOVER_DB_PATH=${HANDOVER_DB_PATH:-/app/data/handover.db}
+    volumes:
+      # 交接台账持久化卷:重启/重建容器后交接单与记录不丢失
+      - handover-data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status==200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3
+
+volumes:
+  handover-data:

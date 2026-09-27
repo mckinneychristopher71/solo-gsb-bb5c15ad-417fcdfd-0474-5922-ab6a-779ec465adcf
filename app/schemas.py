@@ -1,6 +1,8 @@
 """Pydantic 请求模型(同时用于 /docs 中的接口文档)。"""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -91,4 +93,35 @@ class ReviewRequest(BaseModel):
         description="测温仪器绝对误差(℃,非负,默认 0):每时刻真实温度视为"
         "实测值 ± 误差,据此分别给出确定超界/可能超界区间与度时下界/上界;"
         "为 0 时与不考虑仪器误差的原复核结果一致",
+    )
+
+
+class HandoverCreateRequest(BaseModel):
+    plan_input: PlanRequest = Field(
+        ...,
+        description="生成方案时的输入快照(请求体与 /api/plan 相同);"
+        "交接单按该快照重新规划并冻结各箱各批次的应交件数,"
+        "创建后修改规划输入不影响交接单",
+    )
+    title: str | None = Field(
+        None, description="交接单标题(可选);留空自动按创建时间命名"
+    )
+
+
+class HandoverRecordIn(BaseModel):
+    kind: Literal["sign", "return"] = Field(
+        ..., description="sign=签收(净签收 +件数),return=退回(净签收 −件数)"
+    )
+    box_no: int = Field(..., gt=0, description="箱号(须存在于交接单应交明细)")
+    batch_no: int = Field(..., gt=0, description="批号(须存在于交接单应交明细)")
+    units: int = Field(..., gt=0, description="件数(正整数)")
+    note: str | None = Field(None, description="备注(可选)")
+
+
+class HandoverSubmitRequest(BaseModel):
+    records: list[HandoverRecordIn] = Field(
+        ...,
+        min_length=1,
+        description="一次提交的多行签收/退回记录,按提交顺序累计净签收量,"
+        "任一时刻不得小于 0 或超过应交量;任一行违规则整笔不入账",
     )

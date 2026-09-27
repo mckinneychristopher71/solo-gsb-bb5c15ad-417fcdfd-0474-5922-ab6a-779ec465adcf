@@ -142,6 +142,45 @@
         <div id="scenarioDetail" class="scenario-detail" hidden></div>
       </div>
 
+      <!-- ============ 到货交接台账 ============ -->
+      <div id="handoverView">
+        <h3>到货交接台账
+          <span class="muted handover-hint">交接单冻结创建时方案的各箱各批次应交件数,存入 SQLite,重启后可继续办理;此后修改规划输入不影响交接单</span>
+        </h3>
+        <div class="handover-controls">
+          <button id="btnCreateOrder" type="button" class="btn btn-small" disabled
+            title="按当前方案冻结各箱各批次应交件数,生成新的交接单">📋 从当前方案创建交接单</button>
+          <label class="handover-order-label">交接单
+            <select id="orderSelect"></select>
+          </label>
+          <button id="btnRefreshOrders" type="button" class="btn btn-small">↻ 刷新列表</button>
+        </div>
+        <div id="handoverEmpty" class="muted">暂无交接单:先生成分箱方案,再点击「从当前方案创建交接单」;历史交接单重启后自动保留。</div>
+        <div id="handoverDetail" hidden>
+          <div id="handoverMeta" class="assess-meta"></div>
+          <div class="detail-sub">应交明细与净签收(签收 +件数 / 退回 −件数,净签收量始终保持在 0 ~ 应交量之间)</div>
+          <div class="table-wrap" id="handoverLines"></div>
+          <div class="detail-sub">签收 / 退回记录(按提交顺序累计;可撤销未撤销的记录)</div>
+          <div class="table-wrap" id="handoverRecords"></div>
+          <div class="detail-sub">录入签收 / 退回(一次可提交多行;任一行越界则整笔不入账)</div>
+          <div class="table-wrap">
+            <table class="editable handover-edit">
+              <thead>
+                <tr><th>类型</th><th>箱号</th><th>批号</th><th>件数</th><th>备注</th><th></th></tr>
+              </thead>
+              <tbody id="handoverRows"></tbody>
+            </table>
+          </div>
+          <div class="handover-actions">
+            <button id="btnAddHandoverRow" type="button" class="btn btn-small">+ 添加行</button>
+            <button id="btnSubmitRecords" type="button" class="btn btn-small btn-submit-records">✔ 提交整笔记录</button>
+          </div>
+          <datalist id="boxList"></datalist>
+          <datalist id="batchList"></datalist>
+        </div>
+        <div id="handoverError" class="error-box" hidden></div>
+      </div>
+
       <div id="errorBox" class="error-box" hidden></div>
     </section>
   </main>

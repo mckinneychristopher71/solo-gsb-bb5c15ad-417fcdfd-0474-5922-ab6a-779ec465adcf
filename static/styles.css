@@ -525,6 +525,75 @@ select:focus, input[type="file"]:focus {
 .review-none { padding: 6px 0 2px; }
 table.review-exc { width: 100%; margin: 8px 0 0; }
 
+/* ---------- 到货交接台账 ---------- */
+#handoverView { margin-top: 26px; border-top: 1px dashed var(--line); padding-top: 6px; }
+#handoverView h3 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.handover-hint { font-size: 12px; font-weight: 400; }
+
+.handover-controls {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 4px 0 10px;
+}
+.handover-order-label { flex: 1 1 280px; }
+.handover-controls .btn { flex: 0 0 auto; }
+
+table.handover-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin: 4px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+table.handover-table th, table.handover-table td {
+  text-align: left;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+}
+table.handover-table th {
+  background: #f4f8fc;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+table.handover-table tr:last-child td { border-bottom: none; }
+table.handover-table tr.rec-undone td:not(:last-child) {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.kind-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.kind-sign { background: var(--ok-bg); color: var(--ok); }
+.kind-return { background: var(--warn-bg); color: var(--warn); }
+
+.handover-edit select { width: auto; min-width: 76px; }
+.handover-edit input[type="number"] { min-width: 72px; }
+.handover-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 8px;
+}
+.btn-submit-records {
+  background: var(--ok-bg);
+  border-color: #bfe3cd;
+  color: var(--ok);
+  font-weight: 700;
+}
+.btn-submit-records:hover { background: #d3eedd; }
+#handoverError { white-space: pre-line; }
+
 .foot {
   text-align: center;
   color: var(--muted);
